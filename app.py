@@ -12,6 +12,8 @@ import shutil
 import re
 # import os
 # from dotenv import load_dotenv
+import traceback
+import io
 
 st.set_page_config(
     page_title="Prevista - ESFA Form",
@@ -53,6 +55,8 @@ def replace_placeholders(template_file, modified_file, placeholder_values, signa
     try:
         print(f"Copying template file '{template_file}' to '{modified_file}'...")
         shutil.copy(template_file, modified_file)
+
+        time.sleep(1)
 
         print(f"Opening document '{modified_file}'...")
         doc = Document(modified_file)
@@ -465,9 +469,10 @@ elif st.session_state.step == 3:
 
     st.session_state.national_insurance_number = st.text_input("National Insurance Number")
 
-    st.session_state.county, st.session_state.secondary_telephone_number = '', ''
+    st.session_state.county, st.session_state.secondary_telephone_number, st.session_state.suburb_village = '', '', ''
+    st.session_state.next_of_kin, st.session_state.emergency_contact_phone_number = 'N/A', 'N/A'
     st.session_state.house_no_name_street = st.text_input("House No./Name & Street")
-    st.session_state.suburb_village = st.text_input("Suburb / Village")
+    st.session_state.suburb_village = st.text_input("Suburb / Village (Optional)")
     st.session_state.town_city = st.text_input("Town / City")
     st.session_state.county = st.text_input("County (optional)")
     st.session_state.country_of_domicile = st.text_input("Country of Domicile")
@@ -485,14 +490,11 @@ elif st.session_state.step == 3:
         if (is_valid_email(st.session_state.email_address)):
             if (st.session_state.national_insurance_number and
                 st.session_state.house_no_name_street and
-                st.session_state.suburb_village and
                 st.session_state.town_city and
                 st.session_state.country_of_domicile and
                 st.session_state.current_postcode and
                 st.session_state.postcode_prior_enrollment and
-                st.session_state.primary_telephone_number and
-                st.session_state.next_of_kin and
-                st.session_state.emergency_contact_phone_number):
+                st.session_state.primary_telephone_number):
                 st.session_state.step = 4
                 st.experimental_rerun()
             else:
@@ -779,7 +781,7 @@ elif st.session_state.step == 5:
     
     # Other disadvantaged sections
     st.subheader('Other disadvantaged')
-    st.session_state.ex_offender = st.radio('Ex Offender?', ['Y', 'N', 'Choose not to say'])
+    st.session_state.ex_offender = st.radio('Ex Offender?', ['N', 'Y', 'Choose not to say'])
     # Initialize ex_offender variables
     st.session_state.ex_offender_y, st.session_state.ex_offender_n, st.session_state.ex_offender_choose_not_to_say = '', '', ''
     # Conditional input for ex_offender option
@@ -790,7 +792,7 @@ elif st.session_state.step == 5:
     elif st.session_state.ex_offender == "Choose not to say":
         st.session_state.ex_offender_choose_not_to_say = 'Choose not to say'
     
-    st.session_state.homeless = st.radio('Homeless?', ['Y', 'N', 'Choose not to say '])
+    st.session_state.homeless = st.radio('Homeless?', ['N', 'Y', 'Choose not to say '])
     # Initialize homeless variables
     st.session_state.homeless_y, st.session_state.homeless_n, st.session_state.homeless_choose_not_to_say = '', '', ''
     # Conditional input for homeless option
@@ -956,7 +958,7 @@ elif st.session_state.step == 7:
         
 
     # Initialize economically inactive variables
-    st.session_state.inactive_status_val, st.session_state.inactive_evidence_type_val, st.session_state.inactive_evidence_date_val = '-', '-', '-'
+    st.session_state.inactive_status_val, st.session_state.inactive_evidence_type_val, st.session_state.inactive_evidence_date_val = 'N', '-', '-'
     
     # Section B - Economically Inactive details
     if "Economically Inactive" in st.session_state.employment_status:
@@ -969,7 +971,7 @@ elif st.session_state.step == 7:
         )
 
         # Setting 'X' for chosen inactive status
-        st.session_state.inactive_status_val = 'Yes' if st.session_state.inactive_status == "Y" else 'No'
+        st.session_state.inactive_status_val = 'Y' if st.session_state.inactive_status == "Y" else 'N'
 
         st.session_state.inactive_evidence_type_val = st.text_input("Type of evidence for Economically Inactive Status including self-declaration statement.")
         st.session_state.inactive_evidence_date_val = st.date_input("Date of issue of evidence", format='DD/MM/YYYY')
@@ -2290,14 +2292,17 @@ elif st.session_state.step == 11:
             
         # else:   
 
+        # Remove leading/trailing spaces, then replace internal spaces with underscores, and convert to lowercase
+        safe_first_name = st.session_state.first_name.strip().replace(" ", "_").lower()
+        safe_family_name = st.session_state.family_name.strip().replace(" ", "_").lower()
+
         # Define input and output paths
         template_file = "ph_esfa_v3.docx"
-        modified_file = f"ESFA_Form_Submission_{st.session_state.first_name}_{st.session_state.middle_name}_{st.session_state.family_name}.docx"
+        modified_file = f"ESFA_Form_Submission_{safe_first_name}_{safe_family_name}.docx"
 
         if len(st.session_state.participant_signature.json_data['objects']) != 0:
             
             # Convert the drawing to a PIL image and save it
-            safe_family_name = st.session_state.family_name.replace(" ", "_").lower()
             signature_path = f'signature_{safe_family_name}.png'
             # signature_path = 'signature_image.png'
 
@@ -2305,7 +2310,32 @@ elif st.session_state.step == 11:
                 st.session_state.participant_signature.image_data.astype('uint8'), 'RGBA')
             signature_image.save(signature_path)
 
-            replace_placeholders(template_file, modified_file, st.session_state.placeholder_values, signature_path)
+            try:
+                # Call the function to replace placeholders
+                replace_placeholders(template_file, modified_file, st.session_state.placeholder_values, signature_path)
+            except Exception as e:
+                # Capture the full stack trace
+                error_details = traceback.format_exc()
+
+                # Display the error message on the screen
+                st.error(f"An error occurred: {str(e)}")
+                
+                # Optionally write the error details to a file (in-memory)
+                error_file = io.StringIO()
+                error_file.write("Error occurred while replacing placeholders:\n")
+                error_file.write(error_details)
+                error_file.seek(0)  # Move cursor to the start of the file
+
+                # Provide a download button for the error log
+                st.download_button(
+                    label="Download Error Log",
+                    data=error_file,
+                    file_name="error_log.txt",
+                    mime="text/plain"
+                )
+
+                # Rerun the app to refresh the screen
+                st.experimental_rerun()
 
             # Email
 
@@ -2323,7 +2353,7 @@ elif st.session_state.step == 11:
             receiver_email = sender_email
             # receiver_email = 'mohamedr@prevista.co.uk'
             
-            subject = f"ESFA: {st.session_state.selected_option} {st.session_state.first_name} {st.session_state.middle_name} {st.session_state.family_name} {date.today()} {st.session_state.specify_refereel}"
+            subject = f"ESFA: {st.session_state.selected_option} {st.session_state.first_name} {st.session_state.family_name} {date.today()} {st.session_state.specify_refereel}"
 
             body = "ESFA Form submitted. Please find attached files."
 
